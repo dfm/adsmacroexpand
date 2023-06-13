@@ -20,8 +20,11 @@ fn main() {
     };
     reader.read_to_string(&mut buf).unwrap();
 
-    MAPPINGS
+    let mut mappings = MAPPINGS.to_vec();
+    mappings.sort_by_key(|a| a.0.len());
+    mappings
         .iter()
+        .rev()
         .for_each(|(from, to)| buf = buf.replace(from, to));
 
     let mut writer: Box<dyn io::Write> = match args.output {
