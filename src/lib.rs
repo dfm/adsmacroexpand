@@ -1,4 +1,7 @@
+use anyhow::Context;
+use itertools::Itertools;
 use serde::Deserialize;
+use similar::{ChangeTag, TextDiff};
 use std::{
     ffi::OsStr,
     fs, io,
@@ -11,18 +14,38 @@ pub fn find_bibliography_file<P: AsRef<Path>>(root: P) -> Option<PathBuf> {
     WalkDir::new(root).into_iter().find_map(paper_md)
 }
 
-pub fn update_bibliography_file<I: io::Read, O: io::Write>(input: &mut I, output: &mut O) {
-    let mut buf = String::new();
-    input.read_to_string(&mut buf).unwrap();
+pub fn update_bibliography_file<I: io::Read, O: io::Write>(
+    input: &mut I,
+    output: &mut O,
+) -> anyhow::Result<String> {
+    let mut inbuf = String::new();
+    input
+        .read_to_string(&mut inbuf)
+        .context("Cannot read input buffer")?;
 
+    let mut outbuf = inbuf.clone();
     let mut mappings = MAPPINGS.to_vec();
     mappings.sort_by_key(|a| a.0.len());
     mappings
         .iter()
         .rev()
-        .for_each(|(from, to)| buf = buf.replace(from, to));
+        .for_each(|(from, to)| outbuf = outbuf.replace(from, to));
 
-    output.write_all(buf.as_bytes()).unwrap();
+    output
+        .write_all(outbuf.as_bytes())
+        .context("Cannot write output buffer")?;
+
+    let diff = TextDiff::from_lines(&inbuf, &outbuf);
+    let v = diff
+        .iter_all_changes()
+        .filter_map(|change| match change.tag() {
+            ChangeTag::Delete => Some(format!("- {}", change)),
+            ChangeTag::Insert => Some(format!("+ {}", change)),
+            ChangeTag::Equal => None,
+        })
+        .join("");
+
+    Ok(v)
 }
 
 fn paper_md<E>(entry: Result<DirEntry, E>) -> Option<PathBuf> {
